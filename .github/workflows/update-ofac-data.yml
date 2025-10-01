@@ -1,0 +1,17 @@
+name: Update OFAC Data
+
+on:
+  schedule:
+    # Run at 00:05 UTC daily (5 minutes after OFAC updates)
+    - cron: '5 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger OFAC Data Sync
+        run: |
+          curl -X POST ${{ secrets.VERCEL_API_URL }}/api/data/sync-ofac \
+            -H "Authorization: Bearer ${{ secrets.OFAC_SYNC_API_KEY }}" \
+            -H "Content-Type: application/json"

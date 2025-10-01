@@ -1,5 +1,6 @@
 import { paymentMiddleware } from 'x402-next';
 import { facilitator } from '@coinbase/x402';
+import type { NextRequest } from 'next/server';
 
 // Environment variables
 const PAYMENT_RECIPIENT_ADDRESS = process.env.PAYMENT_RECIPIENT_ADDRESS;
@@ -10,8 +11,8 @@ if (!PAYMENT_RECIPIENT_ADDRESS) {
   throw new Error('PAYMENT_RECIPIENT_ADDRESS environment variable is required');
 }
 
-// Configure the payment middleware
-export default paymentMiddleware(
+// Create the payment middleware
+const x402Middleware = paymentMiddleware(
   PAYMENT_RECIPIENT_ADDRESS as `0x${string}`,
   {
     // Wallet screening endpoint
@@ -113,6 +114,19 @@ export default paymentMiddleware(
     sessionTokenEndpoint: '/api/x402/session-token',
   }
 );
+
+// Wrapper to conditionally apply middleware based on path
+export default async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Only apply x402 middleware to protected routes
+  if (path.startsWith('/api/screen/') || path === '/api/x402/session-token') {
+    return x402Middleware(request);
+  }
+
+  // Let all other requests pass through
+  return undefined;
+}
 
 // Configure matcher to only apply middleware to specific routes
 export const config = {

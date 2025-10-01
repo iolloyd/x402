@@ -77,7 +77,9 @@ export class RedisStorage {
 
   async sadd(key: string, ...members: string[]): Promise<number> {
     try {
-      return await this.redis.sadd(key, ...members);
+      if (members.length === 0) return 0;
+      // Cast to tuple type to satisfy TypeScript's spread requirements
+      return await this.redis.sadd(key, ...(members as [string, ...string[]]));
     } catch (error) {
       console.error('Redis SADD error:', error);
       throw error;

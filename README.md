@@ -1,6 +1,6 @@
 # X402 Wallet Screening API
 
-Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists. Built with Next.js, Vercel Edge Functions, and Upstash Redis for sub-second response times.
+An Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists. Built with Next.js, Vercel Edge Functions, and Upstash Redis for sub-second response times.
 
 ## Features
 

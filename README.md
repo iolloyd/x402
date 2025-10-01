@@ -4,7 +4,7 @@ An Agent-optimized API for screening cryptocurrency addresses against OFAC sanct
 
 ## Features
 
-- Sub-second response times via Vercel Edge Functions
+- Has sub-second response times via Vercel Edge Functions
 - Real-time OFAC sanctions screening
 - Support for Ethereum and Base chains
 - Multi-layer caching strategy (Redis)

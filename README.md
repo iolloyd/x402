@@ -9,7 +9,9 @@ Agent-optimized API for screening cryptocurrency addresses against OFAC sanction
 - Support for Ethereum and Base chains
 - Multi-layer caching strategy (Redis)
 - Rate limiting (free and paid tiers)
-- X402 payment integration
+- X402 payment protocol integration with Coinbase facilitator
+- AI agent discoverable via X402 Bazaar
+- Coinbase onramp integration for seamless payment
 - Daily automated OFAC data updates
 
 ## Tech Stack
@@ -18,12 +20,15 @@ Agent-optimized API for screening cryptocurrency addresses against OFAC sanction
 - **Platform**: Vercel (Edge Functions)
 - **Caching**: Upstash Redis
 - **Rate Limiting**: @upstash/ratelimit
+- **Payments**: X402 protocol with x402-next middleware and Coinbase facilitator
+- **Onramp**: Coinbase Developer Platform
 - **Data Source**: 0xB10C OFAC GitHub Repository
 
 ## Project Structure
 
 ```
 x402/
+├── middleware.ts                 # X402 payment middleware
 ├── lib/
 │   ├── cache/
 │   │   ├── redis.ts              # Redis client and storage
@@ -43,9 +48,11 @@ x402/
 │   ├── data/
 │   │   └── sync-ofac.ts          # OFAC data sync endpoint
 │   ├── health.ts                 # Health check
-│   └── screen/
-│       └── [chain]/
-│           └── [address].ts      # Main screening endpoint
+│   ├── screen/
+│   │   └── [chain]/
+│   │       └── [address].ts      # Main screening endpoint
+│   └── x402/
+│       └── session-token.ts      # CDP session token endpoint
 ├── types/
 │   ├── api.ts                    # API types
 │   └── chains.ts                 # Chain types
@@ -88,8 +95,15 @@ Edit `.env.local` with your configuration:
 UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-token-here
 
-# Optional (for X402 payments)
+# Required for X402 payments
 PAYMENT_RECIPIENT_ADDRESS=0x...
+
+# Optional (Coinbase Developer Platform for onramp)
+CDP_CLIENT_KEY=your-cdp-client-key
+CDP_API_KEY_ID=your-cdp-api-key-id
+CDP_API_KEY_SECRET=your-cdp-api-key-secret
+
+# Optional (X402 configuration)
 PAYMENT_VERIFICATION_RPC=https://base-mainnet.g.alchemy.com/v2/YOUR-KEY
 PRICE_PER_CHECK=0.005
 
@@ -314,16 +328,28 @@ The GitHub Actions workflow runs daily at 00:05 UTC to sync OFAC data:
 
 - `UPSTASH_REDIS_REST_URL`: Upstash Redis REST API URL
 - `UPSTASH_REDIS_REST_TOKEN`: Upstash Redis REST API token
+- `PAYMENT_RECIPIENT_ADDRESS`: Address to receive X402 payments (required for payment middleware)
 
-### Optional
+### Optional - Coinbase Developer Platform
 
-- `PAYMENT_RECIPIENT_ADDRESS`: Address to receive X402 payments
+- `CDP_CLIENT_KEY`: Coinbase Developer Platform client key for onramp integration
+- `CDP_API_KEY_ID`: CDP API key ID for session token generation
+- `CDP_API_KEY_SECRET`: CDP API key secret for session token generation
+
+### Optional - X402 Configuration
+
 - `PAYMENT_VERIFICATION_RPC`: RPC URL for payment verification
-- `PRICE_PER_CHECK`: Price per screening check (default: 0.005)
+- `PRICE_PER_CHECK`: Price per screening check in USD (default: 0.005)
+
+### Optional - Rate Limiting
+
 - `SUPPORTED_CHAINS`: Comma-separated list of chains (default: ethereum,base)
 - `FREE_TIER_LIMIT`: Free tier daily limit (default: 10)
 - `PAID_TIER_LIMIT_PER_MINUTE`: Paid tier per-minute limit (default: 100)
 - `PAID_TIER_LIMIT_PER_DAY`: Paid tier daily limit (default: 10000)
+
+### Optional - Data Sync
+
 - `OFAC_SYNC_API_KEY`: Secret key for OFAC sync endpoint
 - `NODE_ENV`: Environment (development/production)
 
@@ -358,19 +384,60 @@ The GitHub Actions workflow runs daily at 00:05 UTC to sync OFAC data:
 - Secure Redis connections (TLS)
 - No PII storage
 
-## Next Steps
+## X402 Payment Integration
 
-### Phase 3: X402 Payment Integration (Not Yet Implemented)
+The X402 payment integration is now COMPLETE. The service uses the x402-next payment middleware with Coinbase facilitator to enable seamless micropayments for API access.
 
-The current implementation includes payment validation stubs. To complete X402 integration:
+### How It Works
 
-1. Implement on-chain payment verification in `lib/x402/validator.ts`
-2. Add payment proof verification logic
-3. Integrate with X402 payment SDK
-4. Test with X402 test environment
-5. Submit to X402 Bazaar
+The payment middleware intercepts requests to protected endpoints and:
+1. Checks for valid X402 payment headers
+2. Verifies payment using the Coinbase facilitator on Base mainnet
+3. Processes payment settlement automatically
+4. Forwards authenticated requests to the API handler
+5. Displays a payment UI with Coinbase onramp for unpaid requests
 
-### Future Enhancements
+### Configuration
+
+Set up your X402 payment integration by configuring these environment variables:
+
+1. **Required**: `PAYMENT_RECIPIENT_ADDRESS` - Your wallet address to receive payments
+2. **Optional**: `CDP_CLIENT_KEY`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` - Coinbase Developer Platform credentials for onramp functionality
+3. **Optional**: `PRICE_PER_CHECK` - Price per screening check (default: $0.005)
+
+For detailed middleware setup instructions, see [MIDDLEWARE_SETUP.md](MIDDLEWARE_SETUP.md).
+
+### Protected Endpoints
+
+The following endpoints are protected by X402 payment middleware:
+
+- `/api/screen/:chain/:address` - Wallet screening endpoint ($0.005 per check)
+- `/api/x402/session-token` - Session token generation (free, for onramp integration)
+
+### X402 Bazaar Listing
+
+The wallet screening service is discoverable by AI agents through the X402 Bazaar. AI agents can:
+- Discover the service and its capabilities automatically
+- View the structured API schema including input parameters and output format
+- Make payments and access the API programmatically
+- Receive detailed screening responses with sanctioned status and risk assessment
+
+The service metadata includes:
+- Full endpoint description and usage instructions
+- Input schema (chain and address parameters)
+- Output schema (screening response structure)
+- Pricing information ($0.005 per check)
+- Network information (Base mainnet)
+
+### Coinbase Onramp Integration
+
+Users without USDC can seamlessly purchase it through the integrated Coinbase onramp:
+- Automatic paywall display for unpaid requests
+- One-click purchase flow
+- Supports credit/debit cards and bank transfers
+- Instant USDC delivery on Base network
+
+## Future Enhancements
 
 - Add more blockchain networks (Solana, Polygon, Arbitrum)
 - Implement batch screening endpoint
@@ -378,11 +445,5 @@ The current implementation includes payment validation stubs. To complete X402 i
 - Enhanced risk scoring with transaction history
 - API key management dashboard
 - Additional data sources (Chainalysis, TRM Labs)
+- Migration to Edge runtime for payment middleware
 
-## License
-
-MIT
-
-## Support
-
-For issues and questions, please open an issue on GitHub.

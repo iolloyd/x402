@@ -116,6 +116,6 @@ export default paymentMiddleware(
 
 // Configure matcher to only apply middleware to specific routes
 export const config = {
-  matcher: ['/api/screen/:path*', '/api/x402/session-token'],
+  matcher: ['/api/screen/:chain/:address', '/api/x402/session-token'],
   runtime: 'nodejs', // Temporary until Edge runtime support is added
 };

@@ -147,7 +147,7 @@ export function getPaymentRequirements(resource?: string): PaymentRequirements {
     maxTimeoutSeconds: 300,
     asset: usdcAddress,
     extra: {
-      service: 'wallet-screening',
+      service: 'clearwallet',
       version: 'v1',
       usdcDecimals: 6
     }

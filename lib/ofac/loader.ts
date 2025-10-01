@@ -1,4 +1,4 @@
-import { SupportedChain } from '@/types/chains';
+import { SupportedChain, SUPPORTED_CHAINS } from '@/types/chains';
 import { OFAC_SOURCES } from './types';
 import * as logger from '@/utils/logger';
 
@@ -41,7 +41,7 @@ export async function fetchOFACAddresses(chain: SupportedChain): Promise<Set<str
 }
 
 export async function fetchAllOFACData(): Promise<Map<SupportedChain, Set<string>>> {
-  const chains: SupportedChain[] = ['ethereum', 'base'];
+  const chains = [...SUPPORTED_CHAINS];
   const dataMap = new Map<SupportedChain, Set<string>>();
 
   for (const chain of chains) {

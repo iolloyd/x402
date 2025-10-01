@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { RedisStorage } from '@/lib/cache/redis';
 import { checkOFACDataExists } from '@/lib/ofac/checker';
 import { HealthCheckResponse } from '@/types/api';
+import { Chain } from '@/types/chains';
 
 export const config = {
   runtime: 'edge',
@@ -25,8 +26,8 @@ export default async function handler(req: NextRequest) {
     const redisHealthy = await storage.ping();
 
     // Check if OFAC data is loaded for at least one chain
-    const ethereumDataExists = await checkOFACDataExists('ethereum');
-    const baseDataExists = await checkOFACDataExists('base');
+    const ethereumDataExists = await checkOFACDataExists(Chain.ETHEREUM);
+    const baseDataExists = await checkOFACDataExists(Chain.BASE);
     const ofacDataHealthy = ethereumDataExists || baseDataExists;
 
     const allHealthy = redisHealthy && ofacDataHealthy;

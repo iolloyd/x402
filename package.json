@@ -1,7 +1,7 @@
 {
-  "name": "x402-wallet-screening",
+  "name": "clearwallet",
   "version": "1.0.0",
-  "description": "Agent-Optimized Wallet Screening API - OFAC sanctions screening service",
+  "description": "ClearWallet - Agent-optimized OFAC sanctions screening API",
   "main": "index.js",
   "scripts": {
     "dev": "next dev",

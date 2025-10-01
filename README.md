@@ -1,6 +1,6 @@
-# X402 Wallet Screening API
+# ClearWallet
 
-An Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists. Built with Next.js, Vercel Edge Functions, and Upstash Redis for sub-second response times.
+Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists. Built with Next.js, Vercel Edge Functions, and Upstash Redis for sub-second response times.
 
 ## Features
 

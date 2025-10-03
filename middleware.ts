@@ -22,6 +22,22 @@ const x402Middleware = paymentMiddleware(
       config: {
         discoverable: true,
         description: 'Screen cryptocurrency addresses against OFAC sanctions lists. Returns risk assessment including sanctioned status, risk level, and flags. The endpoint accepts two path parameters: chain (ethereum or base) and address (0x-prefixed hex address).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            chain: {
+              type: 'string',
+              description: 'Blockchain network to check',
+              enum: ['ethereum', 'base'],
+            },
+            address: {
+              type: 'string',
+              description: '0x-prefixed cryptocurrency address to screen',
+              pattern: '^0x[a-fA-F0-9]{40}$',
+            },
+          },
+          required: ['chain', 'address'],
+        },
         outputSchema: {
           type: 'object',
           properties: {

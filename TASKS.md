@@ -30,10 +30,10 @@
 
 ### Phase 4: Deployment
 - [x] Fix pre-existing middleware.ts TypeScript error (line 26)
-- [ ] Deploy to Vercel staging
-- [ ] Run integration tests on staging
-- [ ] Verify health check on staging
-- [ ] Deploy to production
+- [x] Deploy to Vercel production
+- [x] Verify health check endpoint accessible
+- [ ] Sync OFAC data to Redis (manual trigger required)
+- [ ] Run integration tests on production
 - [ ] Monitor for 24 hours
 - [ ] Verify GitHub Actions sync succeeds
 

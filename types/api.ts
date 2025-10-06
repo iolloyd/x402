@@ -41,6 +41,13 @@ export interface HealthCheckResponse {
   checks: {
     redis: boolean;
     ofac_data: boolean;
+    config: boolean;
+  };
+  data_freshness?: {
+    fresh: boolean;
+    age_hours: number;
+    last_sync: string | null;
+    ttl_remaining: number;
   };
 }
 

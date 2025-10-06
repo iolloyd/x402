@@ -376,6 +376,49 @@ The GitHub Actions workflow runs daily at 00:05 UTC to sync OFAC data:
   - Format: TXT (one address per line)
   - Cost: FREE
 
+### Data Freshness Guarantee
+
+The ClearWallet service maintains strict data freshness guarantees to ensure reliable OFAC sanctions screening:
+
+- **Live Data Source**: Uses production OFAC data from the 0xB10C GitHub repository, which is updated daily at 00:00 UTC with official U.S. Treasury OFAC sanctions data
+- **Automated Sync**: GitHub Actions workflow automatically syncs data at 00:05 UTC daily
+- **Buffer Period**: 25-hour Redis TTL provides a 1-hour buffer beyond the 24-hour update cycle
+- **Health Monitoring**: Built-in health checks continuously monitor data age and freshness
+- **Status Levels**:
+  - **Healthy**: Data is less than 24 hours old
+  - **Degraded**: Data is between 24-26 hours old (service continues but logs warnings)
+  - **Unhealthy**: Data is more than 26 hours old (indicates sync failure requiring investigation)
+
+### Monitoring
+
+The service provides comprehensive monitoring capabilities to ensure data freshness and service reliability:
+
+- **Health Check Endpoint**: `GET /api/health`
+  - Returns service status, data freshness metrics, and last sync timestamp
+  - Includes Redis connectivity check and OFAC data availability check
+  - Provides data age in milliseconds for precise monitoring
+  - Can be integrated with uptime monitoring tools (UptimeRobot, Pingdom, etc.)
+
+**Example Health Check Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-10-05T10:30:00Z",
+  "version": "1.0.0",
+  "checks": {
+    "redis": true,
+    "ofac_data": true
+  },
+  "ofac_data_age_ms": 18000000,
+  "ofac_data_last_sync": "2025-10-05T05:30:00Z"
+}
+```
+
+**Health Check Status Indicators:**
+- `status: "healthy"` - All systems operational, data is fresh
+- `status: "degraded"` - Service operational but data is approaching staleness threshold
+- `status: "unhealthy"` - Data sync has failed, immediate attention required
+
 ## Security
 
 - Input validation on all requests

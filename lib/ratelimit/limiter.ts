@@ -1,6 +1,7 @@
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { RateLimitResult } from '@/types/api';
+import { ApiKey } from '@/types/apikey';
 import * as logger from '@/utils/logger';
 
 let redis: Redis | null = null;
@@ -157,4 +158,89 @@ export function getClientIdentifier(request: Request): string {
   const realIp = request.headers.get('x-real-ip');
 
   return forwardedFor?.split(',')[0] || realIp || 'unknown';
+}
+
+/**
+ * Check rate limit for API key with custom limits
+ */
+export async function checkApiKeyRateLimit(
+  apiKey: ApiKey
+): Promise<RateLimitResult> {
+  try {
+    const redis = getRedis();
+
+    // Use custom limits from the API key
+    const limitsPerMinute = apiKey.rate_limits?.requests_per_minute || 100;
+    const limitsPerDay = apiKey.rate_limits?.requests_per_day || 10000;
+
+    // Create dynamic rate limiters for this API key
+    const perMinuteLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(limitsPerMinute, '1 m'),
+      prefix: `ratelimit:apikey:${apiKey.key_id}:minute`,
+      analytics: true,
+    });
+
+    const perDayLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.fixedWindow(limitsPerDay, '24 h'),
+      prefix: `ratelimit:apikey:${apiKey.key_id}:day`,
+      analytics: true,
+    });
+
+    // Check both limits
+    const [minuteResult, dayResult] = await Promise.all([
+      perMinuteLimiter.limit(apiKey.key_id),
+      perDayLimiter.limit(apiKey.key_id),
+    ]);
+
+    // If either limit is exceeded, deny the request
+    if (!minuteResult.success || !dayResult.success) {
+      const limitHit = !minuteResult.success ? 'per_minute' : 'per_day';
+      const result = !minuteResult.success ? minuteResult : dayResult;
+
+      logger.debug('API key rate limit exceeded', {
+        key_id: apiKey.key_id,
+        limit_type: limitHit,
+        remaining: result.remaining,
+        limit: result.limit,
+      });
+
+      return {
+        success: false,
+        limit: result.limit,
+        remaining: result.remaining,
+        reset: result.reset,
+      };
+    }
+
+    // Use the more restrictive remaining count
+    const remaining = Math.min(minuteResult.remaining, dayResult.remaining);
+
+    logger.debug('API key rate limit check passed', {
+      key_id: apiKey.key_id,
+      tier: apiKey.tier,
+      remaining,
+    });
+
+    return {
+      success: true,
+      limit: limitsPerMinute,
+      remaining,
+      reset: minuteResult.reset,
+    };
+  } catch (error) {
+    logger.error('API key rate limit check error - FAILING CLOSED for security', {
+      key_id: apiKey.key_id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+
+    // SECURITY: Fail closed
+    return {
+      success: false,
+      limit: 0,
+      remaining: 0,
+      reset: Date.now() + 60000,
+    };
+  }
 }

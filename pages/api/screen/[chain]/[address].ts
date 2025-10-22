@@ -14,6 +14,7 @@ import { assessRiskLevel, getRiskFlags } from '@/lib/risk/assessor';
 import { ScreeningCache } from '@/lib/cache/strategies';
 import { checkRateLimit, getClientIdentifier } from '@/lib/ratelimit/limiter';
 import { validateX402Payment, getPaymentRequirements } from '@/lib/x402/validator';
+import { getOrCreateCorrelationId, addCorrelationHeaders } from '@/utils/correlation';
 import * as logger from '@/utils/logger';
 
 export const config = {
@@ -21,12 +22,21 @@ export const config = {
 };
 
 export default async function handler(req: NextRequest) {
+  // Generate correlation ID for request tracking and audit trail
+  const correlationId = getOrCreateCorrelationId(req);
+
   if (req.method !== 'GET') {
     return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
+      JSON.stringify({
+        error: 'Method not allowed',
+        correlation_id: correlationId
+      }),
       {
         status: 405,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...addCorrelationHeaders(correlationId),
+        },
       }
     );
   }
@@ -87,14 +97,19 @@ export default async function handler(req: NextRequest) {
 
     if (cachedResult) {
       logger.info('Screening request - cache hit', {
+        correlation_id: correlationId,
         chain: normalizedChain,
         address: normalizedAddress,
         sanctioned: cachedResult.sanctioned
       });
 
-      // Update cache_hit flag and return
+      // Update cache_hit flag and correlation_id, then return
       return new Response(
-        JSON.stringify({ ...cachedResult, cache_hit: true }),
+        JSON.stringify({
+          ...cachedResult,
+          cache_hit: true,
+          correlation_id: correlationId
+        }),
         {
           status: 200,
           headers: {
@@ -102,6 +117,7 @@ export default async function handler(req: NextRequest) {
             'X-RateLimit-Limit': rateLimitResult.limit.toString(),
             'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
             'X-RateLimit-Reset': new Date(rateLimitResult.reset).toISOString(),
+            ...addCorrelationHeaders(correlationId),
           },
         }
       );
@@ -129,6 +145,7 @@ export default async function handler(req: NextRequest) {
       checked_at: new Date().toISOString(),
       sources: ['ofac_github'],
       cache_hit: false,
+      correlation_id: correlationId,
       ...(ofacResult.sanctioned && ofacResult.details ? { details: ofacResult.details } : {}),
     };
 
@@ -136,6 +153,7 @@ export default async function handler(req: NextRequest) {
     await cache.set(normalizedChain, normalizedAddress, result);
 
     logger.info('Screening request - completed', {
+      correlation_id: correlationId,
       chain: normalizedChain,
       address: normalizedAddress,
       sanctioned: result.sanctioned,
@@ -149,6 +167,7 @@ export default async function handler(req: NextRequest) {
         'X-RateLimit-Limit': rateLimitResult.limit.toString(),
         'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
         'X-RateLimit-Reset': new Date(rateLimitResult.reset).toISOString(),
+        ...addCorrelationHeaders(correlationId),
       },
     });
   } catch (error) {

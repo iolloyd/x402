@@ -11,6 +11,7 @@ export interface ScreeningResult {
   checked_at: string;
   sources: string[];
   cache_hit: boolean;
+  correlation_id?: string; // Request correlation ID for audit trail
   details?: {
     list?: string;
     entity_name?: string;
@@ -21,6 +22,7 @@ export interface ScreeningResult {
 export interface ErrorResponse {
   error: string;
   code: string;
+  correlation_id?: string; // Request correlation ID for audit trail
   chain?: string;
   address?: string;
   supported_chains?: string[];
@@ -38,6 +40,7 @@ export interface HealthCheckResponse {
   status: 'healthy' | 'degraded' | 'unhealthy';
   timestamp: string;
   version: string;
+  correlation_id?: string; // Request correlation ID for audit trail
   checks: {
     redis: boolean;
     ofac_data: boolean;

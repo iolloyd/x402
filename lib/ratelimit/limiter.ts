@@ -56,6 +56,59 @@ function getPaidTierLimiter(): Ratelimit {
   return paidTierLimiterPerMinute;
 }
 
+// Admin endpoint rate limiting (for sync-ofac and other admin operations)
+let adminLimiter: Ratelimit | null = null;
+
+function getAdminLimiter(): Ratelimit {
+  if (!adminLimiter) {
+    // Allow 10 admin operations per hour to prevent brute force
+    const limit = parseInt(process.env.ADMIN_RATE_LIMIT || '10', 10);
+
+    adminLimiter = new Ratelimit({
+      redis: getRedis(),
+      limiter: Ratelimit.fixedWindow(limit, '1 h'),
+      prefix: 'ratelimit:admin',
+      analytics: true,
+    });
+  }
+
+  return adminLimiter;
+}
+
+export async function checkAdminRateLimit(identifier: string): Promise<RateLimitResult> {
+  try {
+    const limiter = getAdminLimiter();
+    const result = await limiter.limit(identifier);
+
+    logger.debug('Admin rate limit check', {
+      identifier,
+      success: result.success,
+      remaining: result.remaining,
+      limit: result.limit,
+    });
+
+    return {
+      success: result.success,
+      limit: result.limit,
+      remaining: result.remaining,
+      reset: result.reset,
+    };
+  } catch (error) {
+    logger.error('Admin rate limit check error - FAILING CLOSED for security', {
+      identifier,
+      error: error instanceof Error ? error.message : String(error)
+    });
+
+    // SECURITY: Fail closed for admin endpoints
+    return {
+      success: false,
+      limit: 0,
+      remaining: 0,
+      reset: Date.now() + 3600000, // Retry in 1 hour
+    };
+  }
+}
+
 export type RateLimitTier = 'free' | 'paid';
 
 export async function checkRateLimit(
@@ -81,18 +134,19 @@ export async function checkRateLimit(
       reset: result.reset,
     };
   } catch (error) {
-    logger.error('Rate limit check error', {
+    logger.error('Rate limit check error - FAILING CLOSED for security', {
       identifier,
       tier,
       error: error instanceof Error ? error.message : String(error)
     });
 
-    // On error, allow the request (fail open)
+    // SECURITY FIX: Fail closed to prevent revenue leakage
+    // If rate limiting fails, deny the request rather than allowing free access
     return {
-      success: true,
+      success: false,
       limit: 0,
       remaining: 0,
-      reset: 0,
+      reset: Date.now() + 60000, // Retry in 1 minute
     };
   }
 }

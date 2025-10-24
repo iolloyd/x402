@@ -12,8 +12,11 @@ import {
 import { isAddressSanctioned } from '@/lib/ofac/checker';
 import { assessRiskLevel, getRiskFlags } from '@/lib/risk/assessor';
 import { ScreeningCache } from '@/lib/cache/strategies';
-import { checkRateLimit, getClientIdentifier } from '@/lib/ratelimit/limiter';
+import { checkRateLimit, checkApiKeyRateLimit, getClientIdentifier } from '@/lib/ratelimit/limiter';
 import { validateX402Payment, getPaymentRequirements } from '@/lib/x402/validator';
+import { lookupApiKey, updateApiKeyUsage } from '@/lib/apikey/storage';
+import { isValidApiKeyFormat } from '@/lib/apikey/generator';
+import { getOrCreateCorrelationId, addCorrelationHeaders } from '@/utils/correlation';
 import * as logger from '@/utils/logger';
 
 export const config = {
@@ -21,12 +24,21 @@ export const config = {
 };
 
 export default async function handler(req: NextRequest) {
+  // Generate correlation ID for request tracking and audit trail
+  const correlationId = getOrCreateCorrelationId(req);
+
   if (req.method !== 'GET') {
     return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
+      JSON.stringify({
+        error: 'Method not allowed',
+        correlation_id: correlationId
+      }),
       {
         status: 405,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...addCorrelationHeaders(correlationId),
+        },
       }
     );
   }
@@ -56,25 +68,66 @@ export default async function handler(req: NextRequest) {
 
     const normalizedAddress = validation.normalized!;
 
-    // Check for X402 payment header
-    const paymentHeader = req.headers.get('x-payment');
-    const hasPaidAccess = paymentHeader ? await validateX402Payment(
-      paymentHeader,
-      process.env.PRICE_PER_CHECK || '0.005'
-    ) : false;
+    // Check for API key (new method for enterprise customers)
+    const apiKeyHeader = req.headers.get('x-api-key') || req.headers.get('authorization')?.replace('Bearer ', '');
+    let apiKey = null;
+    let useApiKey = false;
 
-    // Rate limiting
-    const clientId = getClientIdentifier(req);
-    const rateLimitResult = await checkRateLimit(
-      clientId,
-      hasPaidAccess ? 'paid' : 'free'
-    );
+    if (apiKeyHeader && isValidApiKeyFormat(apiKeyHeader)) {
+      apiKey = await lookupApiKey(apiKeyHeader);
+
+      if (apiKey && apiKey.is_active) {
+        useApiKey = true;
+        logger.debug('Request authenticated with API key', {
+          correlation_id: correlationId,
+          key_id: apiKey.key_id,
+          tier: apiKey.tier,
+        });
+      } else if (apiKey && !apiKey.is_active) {
+        logger.warn('Inactive API key used', {
+          correlation_id: correlationId,
+          key_id: apiKey.key_id,
+        });
+      }
+    }
+
+    // Rate limiting - different strategies based on authentication
+    let rateLimitResult;
+    let hasPaidAccess = false;
+
+    if (useApiKey && apiKey) {
+      // API key-based rate limiting with custom limits
+      rateLimitResult = await checkApiKeyRateLimit(apiKey);
+      hasPaidAccess = true; // API keys have paid access
+
+      // Update API key usage stats asynchronously (don't await)
+      updateApiKeyUsage(apiKey.key_id).catch(err => {
+        logger.error('Failed to update API key usage', {
+          key_id: apiKey.key_id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    } else {
+      // Check for X402 payment header (legacy method)
+      const paymentHeader = req.headers.get('x-payment');
+      hasPaidAccess = paymentHeader ? await validateX402Payment(
+        paymentHeader,
+        process.env.PRICE_PER_CHECK || '0.005'
+      ) : false;
+
+      // IP-based rate limiting
+      const clientId = getClientIdentifier(req);
+      rateLimitResult = await checkRateLimit(
+        clientId,
+        hasPaidAccess ? 'paid' : 'free'
+      );
+    }
 
     if (!rateLimitResult.success) {
       throw new RateLimitError(Math.ceil((rateLimitResult.reset - Date.now()) / 1000));
     }
 
-    // For free tier without payment, return 402 after rate limit check passes
+    // For free tier without payment or API key, return 402
     if (!hasPaidAccess) {
       throw new PaymentRequiredError({
         paymentRequirements: getPaymentRequirements()
@@ -87,14 +140,21 @@ export default async function handler(req: NextRequest) {
 
     if (cachedResult) {
       logger.info('Screening request - cache hit', {
+        correlation_id: correlationId,
         chain: normalizedChain,
         address: normalizedAddress,
-        sanctioned: cachedResult.sanctioned
+        sanctioned: cachedResult.sanctioned,
+        api_key_id: apiKey?.key_id,
+        tier: apiKey?.tier,
       });
 
-      // Update cache_hit flag and return
+      // Update cache_hit flag and correlation_id, then return
       return new Response(
-        JSON.stringify({ ...cachedResult, cache_hit: true }),
+        JSON.stringify({
+          ...cachedResult,
+          cache_hit: true,
+          correlation_id: correlationId
+        }),
         {
           status: 200,
           headers: {
@@ -102,6 +162,7 @@ export default async function handler(req: NextRequest) {
             'X-RateLimit-Limit': rateLimitResult.limit.toString(),
             'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
             'X-RateLimit-Reset': new Date(rateLimitResult.reset).toISOString(),
+            ...addCorrelationHeaders(correlationId),
           },
         }
       );
@@ -129,6 +190,7 @@ export default async function handler(req: NextRequest) {
       checked_at: new Date().toISOString(),
       sources: ['ofac_github'],
       cache_hit: false,
+      correlation_id: correlationId,
       ...(ofacResult.sanctioned && ofacResult.details ? { details: ofacResult.details } : {}),
     };
 
@@ -136,10 +198,13 @@ export default async function handler(req: NextRequest) {
     await cache.set(normalizedChain, normalizedAddress, result);
 
     logger.info('Screening request - completed', {
+      correlation_id: correlationId,
       chain: normalizedChain,
       address: normalizedAddress,
       sanctioned: result.sanctioned,
-      risk_level: result.risk_level
+      risk_level: result.risk_level,
+      api_key_id: apiKey?.key_id,
+      tier: apiKey?.tier,
     });
 
     return new Response(JSON.stringify(result), {
@@ -149,6 +214,7 @@ export default async function handler(req: NextRequest) {
         'X-RateLimit-Limit': rateLimitResult.limit.toString(),
         'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
         'X-RateLimit-Reset': new Date(rateLimitResult.reset).toISOString(),
+        ...addCorrelationHeaders(correlationId),
       },
     });
   } catch (error) {

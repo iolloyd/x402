@@ -29,6 +29,7 @@
     "qr": "^0.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "stripe": "^14.10.0",
     "x402-next": "^0.6.5"
   },
   "devDependencies": {

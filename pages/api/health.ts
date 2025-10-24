@@ -3,6 +3,7 @@ import { RedisStorage } from '@/lib/cache/redis';
 import { checkOFACDataExists } from '@/lib/ofac/checker';
 import { HealthCheckResponse } from '@/types/api';
 import { Chain } from '@/types/chains';
+import { getOrCreateCorrelationId, addCorrelationHeaders } from '@/utils/correlation';
 import * as logger from '@/utils/logger';
 import { validateEnvironment } from '@/utils/config-validator';
 
@@ -101,12 +102,21 @@ function determineHealthStatus(
 }
 
 export default async function handler(req: NextRequest) {
+  // Generate correlation ID for request tracking
+  const correlationId = getOrCreateCorrelationId(req);
+
   if (req.method !== 'GET') {
     return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
+      JSON.stringify({
+        error: 'Method not allowed',
+        correlation_id: correlationId
+      }),
       {
         status: 405,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...addCorrelationHeaders(correlationId),
+        },
       }
     );
   }
@@ -138,6 +148,7 @@ export default async function handler(req: NextRequest) {
       status,
       timestamp: new Date().toISOString(),
       version: '1.0.0',
+      correlation_id: correlationId,
       checks: {
         redis: redisHealthy,
         ofac_data: ofacDataHealthy,
@@ -151,10 +162,14 @@ export default async function handler(req: NextRequest) {
 
     return new Response(JSON.stringify(response), {
       status: httpStatus,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...addCorrelationHeaders(correlationId),
+      },
     });
   } catch (error) {
     logger.error('Health check failed', {
+      correlation_id: correlationId,
       error: error instanceof Error ? error.message : String(error)
     });
 
@@ -162,6 +177,7 @@ export default async function handler(req: NextRequest) {
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
+      correlation_id: correlationId,
       checks: {
         redis: false,
         ofac_data: false,
@@ -171,7 +187,10 @@ export default async function handler(req: NextRequest) {
 
     return new Response(JSON.stringify(response), {
       status: 503,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...addCorrelationHeaders(correlationId),
+      },
     });
   }
 }

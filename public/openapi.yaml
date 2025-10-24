@@ -1,0 +1,748 @@
+openapi: 3.0.3
+info:
+  title: ClearWallet API
+  version: 1.0.0
+  description: |
+    Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists.
+
+    **Features:**
+    - Sub-second response times via Vercel Edge Functions
+    - Real-time OFAC sanctions screening
+    - Support for Ethereum and Base chains
+    - Multi-tier API key system (Free, Starter, Pro, Enterprise)
+    - Batch screening up to 1,000 addresses
+    - Flexible authentication (API keys, Bearer tokens, X402 payments)
+
+    **Commercial Advantage:**
+    - 100x cheaper than competitors ($0.005 vs $0.50 per check)
+    - Sub-second response times
+    - Enterprise-grade security and audit trails
+
+  contact:
+    name: ClearWallet Support
+    url: https://clearwallet.com/support
+    email: support@clearwallet.com
+  license:
+    name: Proprietary
+    url: https://clearwallet.com/terms
+
+servers:
+  - url: https://api.clearwallet.com
+    description: Production server
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Screening
+    description: Address screening operations
+  - name: API Keys
+    description: API key management
+  - name: Health
+    description: Service health monitoring
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  /api/screen/{chain}/{address}:
+    get:
+      summary: Screen a single address
+      description: |
+        Screen a cryptocurrency address against OFAC sanctions lists.
+
+        **Authentication:** Supports API key, Bearer token, or X402 payment.
+
+        **Rate Limits:**
+        - Free tier: 10 requests/24h
+        - Starter: 100 requests/min, 10K/day
+        - Pro: 500 requests/min, 100K/day
+        - Enterprise: 2000 requests/min, 1M/day
+
+        **Pricing:** $0.005 per check (100x cheaper than competitors)
+
+      tags:
+        - Screening
+      parameters:
+        - name: chain
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [ethereum, base]
+          description: Blockchain network
+          example: ethereum
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Cryptocurrency address to screen
+          example: '0x1234567890123456789012345678901234567890'
+      responses:
+        '200':
+          description: Screening completed successfully
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+              description: Request correlation ID for tracking
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Rate limit ceiling for this endpoint
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Number of requests remaining in current window
+            X-RateLimit-Reset:
+              schema:
+                type: string
+                format: date-time
+              description: When rate limit resets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreeningResult'
+              examples:
+                clean:
+                  summary: Clean address (not sanctioned)
+                  value:
+                    address: '0x1234567890123456789012345678901234567890'
+                    chain: ethereum
+                    sanctioned: false
+                    risk_level: clear
+                    flags: []
+                    checked_at: '2025-10-22T10:00:00Z'
+                    sources: ['ofac_github']
+                    cache_hit: false
+                    correlation_id: '1729594800000-a1b2c3d4'
+                sanctioned:
+                  summary: Sanctioned address (high risk)
+                  value:
+                    address: '0x8589427373D6D84E98730D7795D8f6f8731FDA16'
+                    chain: ethereum
+                    sanctioned: true
+                    risk_level: high
+                    flags: ['ofac_sdn_list']
+                    checked_at: '2025-10-22T10:00:00Z'
+                    sources: ['ofac_github']
+                    cache_hit: true
+                    correlation_id: '1729594800000-a1b2c3d4'
+                    details:
+                      list: OFAC SDN
+                      entity_name: Sanctioned Entity
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/screen/batch:
+    post:
+      summary: Batch screen multiple addresses
+      description: |
+        Screen up to 1,000 addresses in a single request.
+
+        **Authentication:** Requires API key authentication.
+
+        **Performance:**
+        - ~250ms for 100 addresses
+        - ~1.5s for 1,000 addresses
+        - Parallel processing
+        - Cache-aware
+
+        **Rate Limits:** Counts as 1 request (not per-address)
+
+      tags:
+        - Screening
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - addresses
+              properties:
+                addresses:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items:
+                    type: object
+                    required:
+                      - chain
+                      - address
+                    properties:
+                      chain:
+                        type: string
+                        enum: [ethereum, base]
+                      address:
+                        type: string
+                        pattern: '^0x[a-fA-F0-9]{40}$'
+            example:
+              addresses:
+                - chain: ethereum
+                  address: '0x1234567890123456789012345678901234567890'
+                - chain: base
+                  address: '0x9876543210987654321098765432109876543210'
+                - chain: ethereum
+                  address: '0x8589427373D6D84E98730D7795D8f6f8731FDA16'
+      responses:
+        '200':
+          description: Batch screening completed
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+            X-RateLimit-Reset:
+              schema:
+                type: string
+                format: date-time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchScreeningResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /api/keys:
+    post:
+      summary: Create new API key
+      description: |
+        Generate a new API key for customer use.
+
+        **Important:** The full API key is only returned once on creation!
+        Store it securely - you won't be able to retrieve it later.
+
+      tags:
+        - API Keys
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+            example:
+              customer_id: cust_123
+              name: Production API Key
+              tier: pro
+              rate_limits:
+                requests_per_minute: 500
+                requests_per_day: 100000
+              metadata:
+                department: compliance
+                project: kyc-screening
+      responses:
+        '201':
+          description: API key created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyWithSecret'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      summary: List customer API keys
+      description: List all API keys for a customer
+      tags:
+        - API Keys
+      security: []
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Customer identifier
+          example: cust_123
+      responses:
+        '200':
+          description: API keys retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyListResponse'
+
+  /api/keys/{keyId}:
+    get:
+      summary: Get API key details
+      description: Retrieve details for a specific API key
+      tags:
+        - API Keys
+      security: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: API key identifier
+          example: key_abc123
+      responses:
+        '200':
+          description: API key details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Revoke or delete API key
+      description: |
+        Revoke (soft delete) or permanently delete an API key.
+
+        **Revoke:** Sets key as inactive, preserves usage history
+        **Delete:** Permanently removes key and history
+
+      tags:
+        - API Keys
+      security: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: permanent
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: If true, permanently delete the key
+      responses:
+        '200':
+          description: API key revoked/deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  key_id:
+                    type: string
+                  correlation_id:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/health:
+    get:
+      summary: Health check
+      description: |
+        Check service health and data freshness.
+
+        **Status Levels:**
+        - `healthy`: All systems operational, data fresh
+        - `degraded`: Operational but data approaching staleness
+        - `unhealthy`: Service issues or stale data
+
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+        '503':
+          description: Service degraded or unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication (format: cw_live_*)
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key as Bearer token
+
+  schemas:
+    ScreeningResult:
+      type: object
+      required:
+        - address
+        - chain
+        - sanctioned
+        - risk_level
+        - flags
+        - checked_at
+        - sources
+        - cache_hit
+      properties:
+        address:
+          type: string
+          description: Normalized address that was screened
+        chain:
+          type: string
+          enum: [ethereum, base]
+        sanctioned:
+          type: boolean
+          description: Whether address is on OFAC sanctions list
+        risk_level:
+          type: string
+          enum: [clear, low, medium, high]
+        flags:
+          type: array
+          items:
+            type: string
+          description: Risk flags (e.g., ofac_sdn_list)
+        checked_at:
+          type: string
+          format: date-time
+        sources:
+          type: array
+          items:
+            type: string
+          description: Data sources checked
+        cache_hit:
+          type: boolean
+          description: Whether result was from cache
+        correlation_id:
+          type: string
+          description: Request correlation ID
+        details:
+          type: object
+          description: Additional details for sanctioned addresses
+          properties:
+            list:
+              type: string
+            entity_name:
+              type: string
+
+    BatchScreeningResponse:
+      type: object
+      required:
+        - correlation_id
+        - total
+        - successful
+        - failed
+        - results
+        - processing_time_ms
+      properties:
+        correlation_id:
+          type: string
+        total:
+          type: integer
+          description: Total addresses submitted
+        successful:
+          type: integer
+          description: Successfully screened addresses
+        failed:
+          type: integer
+          description: Failed screening attempts
+        processing_time_ms:
+          type: integer
+          description: Total processing time in milliseconds
+        results:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/ScreeningResult'
+              - $ref: '#/components/schemas/ScreeningError'
+
+    ScreeningError:
+      type: object
+      required:
+        - error
+        - chain
+        - address
+      properties:
+        error:
+          type: string
+        chain:
+          type: string
+        address:
+          type: string
+
+    ApiKey:
+      type: object
+      required:
+        - key_id
+        - customer_id
+        - name
+        - tier
+        - created_at
+        - usage_count
+        - is_active
+      properties:
+        key_id:
+          type: string
+          example: key_abc123
+        customer_id:
+          type: string
+        name:
+          type: string
+        tier:
+          type: string
+          enum: [free, starter, pro, enterprise]
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        usage_count:
+          type: integer
+          minimum: 0
+        is_active:
+          type: boolean
+        rate_limits:
+          type: object
+          properties:
+            requests_per_minute:
+              type: integer
+            requests_per_day:
+              type: integer
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    ApiKeyWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          required:
+            - api_key
+            - api_key_masked
+          properties:
+            api_key:
+              type: string
+              description: Full API key (only shown once!)
+              example: cw_live_a1b2c3d4e5f6...
+            api_key_masked:
+              type: string
+              description: Masked API key for display
+              example: cw_live_a1b...xyz
+            message:
+              type: string
+
+    CreateApiKeyRequest:
+      type: object
+      required:
+        - customer_id
+        - name
+      properties:
+        customer_id:
+          type: string
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        tier:
+          type: string
+          enum: [free, starter, pro, enterprise]
+          default: free
+        rate_limits:
+          type: object
+          properties:
+            requests_per_minute:
+              type: integer
+              minimum: 1
+            requests_per_day:
+              type: integer
+              minimum: 1
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    ApiKeyListResponse:
+      type: object
+      required:
+        - keys
+        - total
+        - correlation_id
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
+        total:
+          type: integer
+        correlation_id:
+          type: string
+
+    HealthCheckResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - version
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        correlation_id:
+          type: string
+        checks:
+          type: object
+          required:
+            - redis
+            - ofac_data
+            - config
+          properties:
+            redis:
+              type: boolean
+            ofac_data:
+              type: boolean
+            config:
+              type: boolean
+        data_freshness:
+          type: object
+          properties:
+            fresh:
+              type: boolean
+            age_hours:
+              type: number
+            last_sync:
+              type: string
+              format: date-time
+              nullable: true
+            ttl_remaining:
+              type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        correlation_id:
+          type: string
+        details:
+          type: string
+        retry_after:
+          type: integer
+          description: Seconds until retry (for 429 responses)
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Invalid address format
+            code: INVALID_ADDRESS
+            correlation_id: '1729594800000-a1b2c3d4'
+
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Invalid API key
+            code: INVALID_API_KEY
+            correlation_id: '1729594800000-a1b2c3d4'
+
+    PaymentRequired:
+      description: Payment required
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  payment_details:
+                    type: object
+          example:
+            error: Payment required
+            code: PAYMENT_REQUIRED
+            correlation_id: '1729594800000-a1b2c3d4'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: API key not found
+            code: KEY_NOT_FOUND
+            correlation_id: '1729594800000-a1b2c3d4'
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: string
+            format: date-time
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Rate limit exceeded
+            code: RATE_LIMIT_EXCEEDED
+            correlation_id: '1729594800000-a1b2c3d4'
+            retry_after: 60
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Internal server error
+            code: INTERNAL_ERROR
+            correlation_id: '1729594800000-a1b2c3d4'

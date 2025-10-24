@@ -4,15 +4,35 @@ Agent-optimized API for screening cryptocurrency addresses against OFAC sanction
 
 ## Features
 
+### Core Screening
 - Has sub-second response times via Vercel Edge Functions
 - Real-time OFAC sanctions screening
 - Support for Ethereum and Base chains
 - Multi-layer caching strategy (Redis)
-- Rate limiting (free and paid tiers)
+- Daily automated OFAC data updates
+- Request correlation IDs for audit trails
+
+### Enterprise Features (Phase 2 ✅)
+- **API Key Management**: Complete CRUD system with custom rate limits
+- **Batch Screening**: Process up to 1,000 addresses per request
+- **Multi-Tier Support**: Free, Starter, Pro, Enterprise tiers
+- **Usage Tracking**: Per-key analytics and monitoring
+- **Flexible Authentication**: API keys, Bearer tokens, or X402 payments
+
+### Enterprise Ready (Phase 3 ✅)
+- **OpenAPI 3.0 Specification**: Complete API documentation with Swagger UI
+- **Interactive API Docs**: Test endpoints directly in browser at `/docs`
+- **Stripe Billing Integration**: Automated subscription management
+- **Self-Service Dashboard**: Customer portal for key and usage management
+- **Webhook Handlers**: Automated billing lifecycle management
+- **SDK Generation**: Auto-generate clients for 50+ languages
+
+### Payment Integration
 - X402 payment protocol integration with Coinbase facilitator
+- Stripe subscriptions ($99-2999/month)
 - AI agent discoverable via X402 Bazaar
 - Coinbase onramp integration for seamless payment
-- Daily automated OFAC data updates
+- Per-request or subscription billing
 
 ## Tech Stack
 

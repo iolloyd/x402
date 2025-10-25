@@ -1,6 +1,8 @@
 import { paymentMiddleware } from 'x402-next';
 import { facilitator } from '@coinbase/x402';
+import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
 // Environment variables
 const PAYMENT_RECIPIENT_ADDRESS = process.env.PAYMENT_RECIPIENT_ADDRESS;
@@ -41,21 +43,60 @@ const x402Middleware = paymentMiddleware(
   }
 );
 
+// Protected routes that require authentication
+const PROTECTED_ROUTES = ['/dashboard', '/pricing'];
+const AUTH_ROUTES = ['/login', '/signup'];
+
 // Wrapper to conditionally apply middleware based on path
 export default async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  // Only apply x402 middleware to protected routes
+  // Update Supabase session for all routes
+  const response = await updateSession(request);
+
+  // Check if user is accessing protected route
+  if (PROTECTED_ROUTES.some(route => path.startsWith(route))) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Missing Supabase configuration');
+      return response;
+    }
+
+    // Check if user is authenticated by checking for session cookie
+    const sessionCookie = request.cookies.get('sb-access-token');
+
+    if (!sessionCookie) {
+      // Redirect to login if not authenticated
+      const redirectUrl = new URL('/login', request.url);
+      redirectUrl.searchParams.set('redirect', path);
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
+  // Redirect authenticated users away from auth pages
+  if (AUTH_ROUTES.some(route => path.startsWith(route))) {
+    const sessionCookie = request.cookies.get('sb-access-token');
+
+    if (sessionCookie) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+  }
+
+  // Apply x402 middleware to payment-protected routes
   if (path.startsWith('/api/screen/') || path === '/api/x402/session-token') {
     return x402Middleware(request);
   }
 
   // Let all other requests pass through
-  return undefined;
+  return response;
 }
 
-// Configure matcher to only apply middleware to specific routes
+// Configure matcher to apply middleware to all routes
 export const config = {
-  matcher: ['/api/screen/:chain/:address', '/api/x402/session-token'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
   runtime: 'nodejs', // Temporary until Edge runtime support is added
 };

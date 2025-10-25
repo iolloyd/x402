@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { createClient } from '@/lib/supabase/client';
 
 interface ApiKey {
   key_id: string;
@@ -16,24 +17,60 @@ interface ApiKey {
   };
 }
 
+interface User {
+  id: string;
+  email: string;
+  user_metadata: {
+    full_name?: string;
+  };
+}
+
 export default function Dashboard() {
   const router = useRouter();
-  const [customerId, setCustomerId] = useState('');
+  const [user, setUser] = useState<User | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [newKeyName, setNewKeyName] = useState('');
   const [selectedTier, setSelectedTier] = useState('free');
   const [createdKey, setCreatedKey] = useState<{ api_key: string; key_id: string } | null>(null);
 
-  const fetchApiKeys = async () => {
-    if (!customerId) return;
+  useEffect(() => {
+    checkUser();
+  }, []);
 
-    setLoading(true);
+  useEffect(() => {
+    if (user) {
+      fetchApiKeys();
+    }
+  }, [user]);
+
+  const checkUser = async () => {
+    try {
+      const supabase = createClient();
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !authUser) {
+        router.push('/login');
+        return;
+      }
+
+      setUser(authUser as User);
+    } catch (err) {
+      console.error('Auth check failed:', err);
+      router.push('/login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchApiKeys = async () => {
+    if (!user) return;
+
     setError('');
 
     try {
-      const response = await fetch(`/api/keys?customer_id=${encodeURIComponent(customerId)}`);
+      const response = await fetch(`/api/keys?customer_id=${encodeURIComponent(user.id)}`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -43,14 +80,12 @@ export default function Dashboard() {
       setApiKeys(data.keys || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch API keys');
-    } finally {
-      setLoading(false);
     }
   };
 
   const createApiKey = async () => {
-    if (!customerId || !newKeyName) {
-      setError('Customer ID and key name are required');
+    if (!user || !newKeyName) {
+      setError('Key name is required');
       return;
     }
 
@@ -63,7 +98,7 @@ export default function Dashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_id: customerId,
+          customer_id: user.id,
           name: newKeyName,
           tier: selectedTier,
         }),
@@ -104,13 +139,19 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    // Try to get customer_id from query params
-    const { customer_id } = router.query;
-    if (customer_id && typeof customer_id === 'string') {
-      setCustomerId(customer_id);
-    }
-  }, [router.query]);
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+        <p>Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -120,26 +161,27 @@ export default function Dashboard() {
       </Head>
 
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px', fontFamily: 'system-ui, sans-serif' }}>
-        <h1>ClearWallet Dashboard</h1>
-
-        {/* Customer ID Input */}
-        <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
-          <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-            Customer ID:
-            <input
-              type="text"
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              placeholder="Enter your customer ID"
-              style={{ marginLeft: '10px', padding: '8px', width: '300px', borderRadius: '4px', border: '1px solid #ccc' }}
-            />
-          </label>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+          <div>
+            <h1 style={{ margin: '0 0 8px 0' }}>ClearWallet Dashboard</h1>
+            <p style={{ margin: 0, color: '#666' }}>
+              Welcome back, {user?.user_metadata?.full_name || user?.email}
+            </p>
+          </div>
           <button
-            onClick={fetchApiKeys}
-            disabled={!customerId || loading}
-            style={{ padding: '10px 20px', backgroundColor: '#0070f3', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            onClick={handleLogout}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
           >
-            {loading ? 'Loading...' : 'Load API Keys'}
+            Log Out
           </button>
         </div>
 
@@ -150,47 +192,48 @@ export default function Dashboard() {
         )}
 
         {/* Create New API Key */}
-        {customerId && (
-          <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
-            <h2 style={{ marginTop: 0 }}>Create New API Key</h2>
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-              <input
-                type="text"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="API Key Name"
-                style={{ padding: '8px', flex: 1, borderRadius: '4px', border: '1px solid #ccc' }}
-              />
-              <select
-                value={selectedTier}
-                onChange={(e) => setSelectedTier(e.target.value)}
-                style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-              >
-                <option value="free">Free</option>
-                <option value="starter">Starter</option>
-                <option value="pro">Pro</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
-              <button
-                onClick={createApiKey}
-                disabled={!newKeyName || loading}
-                style={{ padding: '10px 20px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-              >
-                Create Key
-              </button>
-            </div>
+        <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
+          <h2 style={{ marginTop: 0 }}>Create New API Key</h2>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder="API Key Name"
+              style={{ padding: '8px', flex: '1 1 200px', borderRadius: '4px', border: '1px solid #ccc' }}
+            />
+            <select
+              value={selectedTier}
+              onChange={(e) => setSelectedTier(e.target.value)}
+              style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+            >
+              <option value="free">Free</option>
+              <option value="starter">Starter</option>
+              <option value="pro">Pro</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+            <button
+              onClick={createApiKey}
+              disabled={!newKeyName || loading}
+              style={{ padding: '10px 20px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              Create Key
+            </button>
           </div>
-        )}
+          <p style={{ margin: '10px 0 0 0', fontSize: '14px', color: '#666' }}>
+            Free tier: 100 checks/month. <a href="/pricing" style={{ color: '#0070f3' }}>Upgrade for higher limits</a>
+          </p>
+        </div>
 
         {/* Show newly created key */}
         {createdKey && (
           <div style={{ padding: '20px', backgroundColor: '#eff6ff', borderRadius: '8px', marginBottom: '20px', border: '2px solid #0070f3' }}>
-            <h3 style={{ marginTop: 0, color: '#0070f3' }}>⚠️ API Key Created - Save This Now!</h3>
+            <h3 style={{ marginTop: 0, color: '#0070f3' }}>API Key Created - Save This Now!</h3>
             <p style={{ margin: '10px 0' }}>This is the only time you'll see the full API key:</p>
-            <code style={{ display: 'block', padding: '15px', backgroundColor: 'white', borderRadius: '4px', marginBottom: '10px', wordBreak: 'break-all' }}>
+            <code style={{ display: 'block', padding: '15px', backgroundColor: 'white', borderRadius: '4px', marginBottom: '10px', wordBreak: 'break-all', fontSize: '13px' }}>
               {createdKey.api_key}
             </code>
-            <p style={{ fontSize: '14px', color: '#666' }}>Key ID: {createdKey.key_id}</p>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>Key ID: {createdKey.key_id}</p>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(createdKey.api_key);
@@ -204,7 +247,7 @@ export default function Dashboard() {
         )}
 
         {/* API Keys List */}
-        {apiKeys.length > 0 && (
+        {apiKeys.length > 0 ? (
           <div>
             <h2>Your API Keys ({apiKeys.length})</h2>
             <div style={{ display: 'grid', gap: '15px' }}>
@@ -262,15 +305,26 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+        ) : (
+          <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
+            <p style={{ fontSize: '16px', color: '#666', marginBottom: '10px' }}>No API keys yet</p>
+            <p style={{ fontSize: '14px', color: '#999' }}>Create your first API key to get started</p>
+          </div>
         )}
 
         {/* Documentation Links */}
         <div style={{ marginTop: '40px', padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
           <h3>Resources</h3>
-          <ul>
-            <li><a href="/docs" target="_blank" style={{ color: '#0070f3' }}>API Documentation</a></li>
-            <li><a href="/openapi.yaml" target="_blank" style={{ color: '#0070f3' }}>OpenAPI Specification</a></li>
-            <li><a href="https://clearwallet.com/support" target="_blank" style={{ color: '#0070f3' }}>Support</a></li>
+          <ul style={{ margin: '10px 0', paddingLeft: '20px' }}>
+            <li style={{ marginBottom: '8px' }}>
+              <a href="/docs" target="_blank" style={{ color: '#0070f3', textDecoration: 'none' }}>API Documentation</a>
+            </li>
+            <li style={{ marginBottom: '8px' }}>
+              <a href="/openapi.yaml" target="_blank" style={{ color: '#0070f3', textDecoration: 'none' }}>OpenAPI Specification</a>
+            </li>
+            <li style={{ marginBottom: '8px' }}>
+              <a href="/pricing" style={{ color: '#0070f3', textDecoration: 'none' }}>View Pricing Tiers</a>
+            </li>
           </ul>
         </div>
       </div>

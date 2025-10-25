@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 
 export default function Home() {
   return (
@@ -12,6 +13,31 @@ export default function Home() {
       <p>
         Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists.
       </p>
+
+      <div style={{ marginTop: '20px', marginBottom: '40px', display: 'flex', gap: '10px' }}>
+        <Link href="/signup" style={{
+          display: 'inline-block',
+          padding: '12px 24px',
+          backgroundColor: '#0070f3',
+          color: 'white',
+          textDecoration: 'none',
+          borderRadius: '8px',
+          fontWeight: '500'
+        }}>
+          Get Started Free
+        </Link>
+        <Link href="/docs" style={{
+          display: 'inline-block',
+          padding: '12px 24px',
+          backgroundColor: '#f5f5f5',
+          color: '#333',
+          textDecoration: 'none',
+          borderRadius: '8px',
+          fontWeight: '500'
+        }}>
+          View Docs
+        </Link>
+      </div>
 
       <h2>API Endpoints</h2>
 
@@ -68,8 +94,24 @@ export default function Home() {
 
       <h2>Documentation</h2>
       <p>
-        See the <a href="https://github.com" target="_blank">GitHub repository</a> for complete API documentation.
+        See the <a href="/docs" style={{ color: '#0070f3' }}>API Documentation</a> for complete details.
       </p>
+
+      <div style={{ marginTop: '40px', padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px', textAlign: 'center' }}>
+        <h3>Ready to get started?</h3>
+        <Link href="/signup" style={{
+          display: 'inline-block',
+          padding: '12px 24px',
+          backgroundColor: '#0070f3',
+          color: 'white',
+          textDecoration: 'none',
+          borderRadius: '8px',
+          fontWeight: '500',
+          marginTop: '10px'
+        }}>
+          Create Free Account
+        </Link>
+      </div>
     </div>
   );
 }

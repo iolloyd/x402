@@ -382,7 +382,7 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
-      description: API key for authentication (format: cw_live_*)
+      description: "API key for authentication (format: cw_live_*)"
     BearerAuth:
       type: http
       scheme: bearer

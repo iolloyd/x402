@@ -20,14 +20,14 @@ info:
 
   contact:
     name: ClearWallet Support
-    url: https://clearwallet.com/support
-    email: support@clearwallet.com
+    url: https://clearwallet.app
+    email: support@clearwallet.app
   license:
     name: Proprietary
-    url: https://clearwallet.com/terms
+    url: https://clearwallet.app/terms
 
 servers:
-  - url: https://api.clearwallet.com
+  - url: https://clearwallet.app
     description: Production server
   - url: http://localhost:3000
     description: Local development

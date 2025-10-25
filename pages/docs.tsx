@@ -8,7 +8,7 @@ export default function ApiDocs() {
     const initSwagger = () => {
       if (typeof window !== 'undefined' && (window as any).SwaggerUIBundle) {
         (window as any).ui = (window as any).SwaggerUIBundle({
-          url: '/openapi.yaml',
+          url: '/api/openapi',
           dom_id: '#swagger-ui',
           deepLinking: true,
           presets: [

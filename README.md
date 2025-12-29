@@ -1,46 +1,97 @@
 # ClearWallet
 
-Agent-optimized API for screening cryptocurrency addresses against OFAC sanctions lists. Built with Next.js, Vercel Edge Functions, and Upstash Redis for sub-second response times.
+ClearWallet is an agent-optimized OFAC (Office of Foreign Assets Control) sanctions screening API for cryptocurrency addresses. It enables real-time compliance checking against U.S. Treasury sanctions lists, designed for both AI agents (via X402 micropayments) and enterprise compliance teams (via API keys and subscriptions).
+
+## What It Does
+
+ClearWallet screens blockchain addresses to determine whether they appear on OFAC sanctions lists. When you submit an address, the service:
+
+1. Validates the address format and chain
+2. Checks authentication (API key, X402 payment, or free tier)
+3. Looks up the address against cached OFAC data
+4. Returns a risk assessment with sanctions status
+
+The service maintains fresh OFAC data through daily automated syncs from the official [0xB10C OFAC GitHub repository](https://github.com/0xB10C/ofac-sanctioned-digital-currency-addresses), which sources directly from U.S. Treasury sanctions lists.
+
+## How It Works
+
+### Architecture Overview
+
+```
+Request Flow:
+
+Client Request
+     |
+[Middleware] -----> X402 Payment Validation
+     |              Supabase Auth Routing
+     v
+[API Handler] ----> Address & Chain Validation
+     |              Authentication Check (API Key / X402 / Free)
+     |              Rate Limit Check
+     v
+[Business Logic] -> Redis Cache Lookup
+     |              OFAC Set Membership Check
+     |              Risk Assessment
+     v
+[Response] -------> JSON with sanctions status, risk level, flags
+```
+
+### Data Flow
+
+1. **Daily OFAC Sync**: GitHub Actions fetches sanctioned addresses at 00:05 UTC
+2. **Redis Storage**: Addresses stored as SET for O(1) membership lookups
+3. **Cache Strategy**:
+   - OFAC dataset: 25-hour TTL (1-hour buffer beyond daily updates)
+   - Sanctioned results: 24-hour TTL
+   - Clear results: 1-hour TTL
+4. **Response**: Sub-200ms with cache hit, includes correlation ID for audit trails
+
+### Authentication Methods
+
+| Method | Use Case | Rate Limits |
+|--------|----------|-------------|
+| **Free (IP-based)** | Testing/evaluation | 10 requests/day per IP |
+| **X402 Payment** | AI agents, micropayments | 100 req/min, 10K req/day |
+| **API Key** | Enterprise integration | Custom per-key limits |
+| **Subscription** | High-volume usage | Tier-based (Starter/Pro/Enterprise) |
 
 ## Features
 
 ### Core Screening
-- Has sub-second response times via Vercel Edge Functions
 - Real-time OFAC sanctions screening
+- Sub-second response times via Vercel Edge Functions
 - Support for Ethereum and Base chains
-- Multi-layer caching strategy (Redis)
-- Daily automated OFAC data updates
+- Multi-layer Redis caching
 - Request correlation IDs for audit trails
+- Daily automated OFAC data updates
 
-### Enterprise Features (Phase 2 ✅)
-- **API Key Management**: Complete CRUD system with custom rate limits
+### Enterprise Features
+- **API Key Management**: Full CRUD with custom rate limits
 - **Batch Screening**: Process up to 1,000 addresses per request
-- **Multi-Tier Support**: Free, Starter, Pro, Enterprise tiers
-- **Usage Tracking**: Per-key analytics and monitoring
-- **Flexible Authentication**: API keys, Bearer tokens, or X402 payments
-
-### Enterprise Ready (Phase 3 ✅)
-- **OpenAPI 3.0 Specification**: Complete API documentation with Swagger UI
-- **Interactive API Docs**: Test endpoints directly in browser at `/docs`
-- **Stripe Billing Integration**: Automated subscription management
-- **Self-Service Dashboard**: Customer portal for key and usage management
-- **Webhook Handlers**: Automated billing lifecycle management
-- **SDK Generation**: Auto-generate clients for 50+ languages
+- **Multi-Tier Support**: Free, Starter ($99/mo), Pro ($499/mo), Enterprise ($2,999/mo)
+- **Usage Analytics**: Per-key tracking and monitoring
+- **Self-Service Dashboard**: Manage keys, view usage, billing portal
 
 ### Payment Integration
-- X402 payment protocol integration with Coinbase facilitator
-- Stripe subscriptions ($99-2999/month)
-- AI agent discoverable via X402 Bazaar
-- Coinbase onramp integration for seamless payment
-- Per-request or subscription billing
+- **X402 Protocol**: Micropayments ($0.005/check) via Coinbase facilitator
+- **Stripe Subscriptions**: Monthly billing with customer portal
+- **Coinbase Onramp**: Seamless USDC purchase for X402 payments
+- **AI Agent Discovery**: Listed on X402 Bazaar for autonomous agents
+
+### Developer Experience
+- **OpenAPI 3.0 Specification**: Complete API documentation
+- **Interactive Docs**: Test endpoints at `/docs`
+- **SDK Generation**: Auto-generate clients for 50+ languages
 
 ## Tech Stack
 
 - **Runtime**: Next.js 14+ with TypeScript
-- **Platform**: Vercel (Edge Functions)
+- **Platform**: Vercel Edge Functions
+- **Database**: Supabase (PostgreSQL)
 - **Caching**: Upstash Redis
 - **Rate Limiting**: @upstash/ratelimit
-- **Payments**: X402 protocol with x402-next middleware and Coinbase facilitator
+- **Authentication**: Supabase Auth + API Keys
+- **Payments**: X402 protocol (x402-next middleware) + Stripe
 - **Onramp**: Coinbase Developer Platform
 - **Data Source**: 0xB10C OFAC GitHub Repository
 
@@ -48,8 +99,13 @@ Agent-optimized API for screening cryptocurrency addresses against OFAC sanction
 
 ```
 x402/
-├── middleware.ts                 # X402 payment middleware
+├── middleware.ts                 # X402 payment & auth routing
 ├── lib/
+│   ├── apikey/
+│   │   ├── generator.ts          # API key generation
+│   │   └── storage.ts            # API key storage & validation
+│   ├── billing/
+│   │   └── stripe.ts             # Stripe integration
 │   ├── cache/
 │   │   ├── redis.ts              # Redis client and storage
 │   │   └── strategies.ts         # Cache-aside pattern
@@ -61,18 +117,39 @@ x402/
 │   │   └── limiter.ts            # Rate limiting logic
 │   ├── risk/
 │   │   └── assessor.ts           # Risk assessment
+│   ├── supabase/
+│   │   ├── client.ts             # Browser client
+│   │   ├── middleware.ts         # Auth middleware
+│   │   └── server.ts             # Server client
 │   └── x402/
 │       ├── types.ts              # X402 types
 │       └── validator.ts          # Payment validation
-├── pages/api/
-│   ├── data/
-│   │   └── sync-ofac.ts          # OFAC data sync endpoint
-│   ├── health.ts                 # Health check
-│   ├── screen/
-│   │   └── [chain]/
-│   │       └── [address].ts      # Main screening endpoint
-│   └── x402/
-│       └── session-token.ts      # CDP session token endpoint
+├── pages/
+│   ├── api/
+│   │   ├── billing/
+│   │   │   ├── portal.ts         # Stripe customer portal
+│   │   │   └── webhook.ts        # Stripe webhooks
+│   │   ├── data/
+│   │   │   └── sync-ofac.ts      # OFAC data sync endpoint
+│   │   ├── keys/
+│   │   │   ├── index.ts          # List/create API keys
+│   │   │   └── [keyId].ts        # Get/delete individual key
+│   │   ├── screen/
+│   │   │   ├── batch.ts          # Batch screening
+│   │   │   └── [chain]/
+│   │   │       └── [address].ts  # Main screening endpoint
+│   │   ├── health.ts             # Health check
+│   │   └── x402/
+│   │       └── session-token.ts  # CDP session token endpoint
+│   ├── _app.tsx                  # App wrapper with Supabase context
+│   ├── dashboard.tsx             # User dashboard (protected)
+│   ├── docs.tsx                  # Interactive API documentation
+│   ├── index.tsx                 # Landing page
+│   ├── login.tsx                 # Authentication
+│   └── signup.tsx                # Registration
+├── public/
+│   └── .well-known/
+│       └── x402.json             # X402 discovery metadata
 ├── types/
 │   ├── api.ts                    # API types
 │   └── chains.ts                 # Chain types
@@ -80,8 +157,11 @@ x402/
 │   ├── errors.ts                 # Error handling
 │   ├── logger.ts                 # Structured logging
 │   └── validation.ts             # Address validation
-└── scripts/
-    └── seed-redis.ts             # Redis initialization
+├── scripts/
+│   └── seed-redis.ts             # Redis initialization
+└── .github/
+    └── workflows/
+        └── update-ofac-data.yml  # Daily OFAC sync
 ```
 
 ## Setup
@@ -90,13 +170,15 @@ x402/
 
 - Node.js 20.x or higher
 - Upstash Redis account
+- Supabase account
 - Vercel account (for deployment)
 
 ### Installation
 
 1. Clone the repository:
 ```bash
-cd /Users/iolloyd/code/x402
+git clone <repository-url>
+cd x402
 ```
 
 2. Install dependencies:
@@ -109,25 +191,33 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` with your configuration:
+4. Configure `.env.local`:
 ```bash
-# Required
+# Required - Redis
 UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-token-here
+
+# Required - Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Required for X402 payments
 PAYMENT_RECIPIENT_ADDRESS=0x...
 
-# Optional (Coinbase Developer Platform for onramp)
+# Optional - Coinbase Developer Platform
 CDP_CLIENT_KEY=your-cdp-client-key
 CDP_API_KEY_ID=your-cdp-api-key-id
 CDP_API_KEY_SECRET=your-cdp-api-key-secret
 
-# Optional (X402 configuration)
-PAYMENT_VERIFICATION_RPC=https://base-mainnet.g.alchemy.com/v2/YOUR-KEY
-PRICE_PER_CHECK=0.005
+# Optional - Stripe billing
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_...
 
-# Optional (for data sync)
+# Optional - Configuration
+PRICE_PER_CHECK=0.005
+PAYMENT_VERIFICATION_RPC=https://base-mainnet.g.alchemy.com/v2/YOUR-KEY
 OFAC_SYNC_API_KEY=your-secret-key-here
 ```
 
@@ -136,17 +226,10 @@ OFAC_SYNC_API_KEY=your-secret-key-here
 Before running the API, seed Redis with OFAC data:
 
 ```bash
-# Install tsx if not already installed
-npm install -g tsx
-
-# Run the seed script
 npx tsx scripts/seed-redis.ts
 ```
 
-This will:
-- Fetch OFAC sanctioned addresses from GitHub
-- Store them in Redis
-- Set up proper TTL for automatic expiration
+This fetches OFAC sanctioned addresses from GitHub and stores them in Redis.
 
 ## Development
 
@@ -165,22 +248,30 @@ The API will be available at `http://localhost:3000`
 curl http://localhost:3000/api/health
 ```
 
-2. Screen an address (will return 402 Payment Required):
+2. Screen an address (free tier):
 ```bash
 curl http://localhost:3000/api/screen/ethereum/0x1234567890123456789012345678901234567890
 ```
 
-3. Manually sync OFAC data:
+3. Screen with API key:
 ```bash
-curl -X POST http://localhost:3000/api/data/sync-ofac \
-  -H "Authorization: Bearer your-secret-key"
+curl http://localhost:3000/api/screen/ethereum/0x1234567890123456789012345678901234567890 \
+  -H "x-api-key: your-api-key"
+```
+
+4. Batch screening:
+```bash
+curl -X POST http://localhost:3000/api/screen/batch \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-api-key" \
+  -d '{"addresses": [{"chain": "ethereum", "address": "0x..."}]}'
 ```
 
 ## API Endpoints
 
 ### GET /api/health
 
-Health check endpoint.
+Health check with data freshness metrics.
 
 **Response:**
 ```json
@@ -191,22 +282,28 @@ Health check endpoint.
   "checks": {
     "redis": true,
     "ofac_data": true
-  }
+  },
+  "ofac_data_age_ms": 18000000,
+  "ofac_data_last_sync": "2025-10-01T05:30:00Z"
 }
 ```
 
+Status values: `healthy` (data < 24h), `degraded` (24-26h), `unhealthy` (> 26h)
+
 ### GET /api/screen/{chain}/{address}
 
-Screen a cryptocurrency address against OFAC sanctions.
+Screen a single address against OFAC sanctions.
 
 **Parameters:**
 - `chain`: `ethereum` or `base`
-- `address`: Cryptocurrency address to screen
+- `address`: 0x-prefixed 40-character hex address
 
 **Headers:**
-- `X-PAYMENT`: (Optional) X402 payment payload
+- `x-api-key` or `Authorization: Bearer <key>`: API key authentication
+- `X-Payment`: X402 payment proof
+- `X-Correlation-ID`: Optional request correlation ID
 
-**Response (Success - Not Sanctioned):**
+**Response (Not Sanctioned):**
 ```json
 {
   "address": "0x1234567890123456789012345678901234567890",
@@ -216,7 +313,8 @@ Screen a cryptocurrency address against OFAC sanctions.
   "flags": [],
   "checked_at": "2025-10-01T10:30:00Z",
   "sources": ["ofac_github"],
-  "cache_hit": false
+  "cache_hit": false,
+  "correlation_id": "abc123"
 }
 ```
 
@@ -230,82 +328,74 @@ Screen a cryptocurrency address against OFAC sanctions.
   "flags": ["ofac_sdn_list"],
   "checked_at": "2025-10-01T10:30:00Z",
   "sources": ["ofac_github"],
-  "details": {
-    "list": "OFAC SDN",
-    "entity_name": "Sanctioned Entity"
-  },
   "cache_hit": false
 }
 ```
 
-**Response (Payment Required):**
+### POST /api/screen/batch
+
+Screen multiple addresses in a single request (up to 1,000).
+
+**Request:**
 ```json
 {
-  "error": "Payment required",
-  "code": "PAYMENT_REQUIRED",
-  "payment_details": {
-    "paymentRequirements": [{
-      "scheme": "x402-stablecoin",
-      "amount": "0.005",
-      "currency": "USDC",
-      "network": "base",
-      "recipient": "0x...",
-      "metadata": {
-        "service": "wallet-screening",
-        "version": "v1"
-      }
-    }]
+  "addresses": [
+    {"chain": "ethereum", "address": "0x..."},
+    {"chain": "base", "address": "0x..."}
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {"address": "0x...", "chain": "ethereum", "sanctioned": false, ...},
+    {"address": "0x...", "chain": "base", "sanctioned": false, ...}
+  ],
+  "summary": {
+    "total": 2,
+    "sanctioned": 0,
+    "clear": 2
   }
 }
 ```
+
+### API Key Management
+
+#### GET /api/keys
+List all API keys for authenticated user.
+
+#### POST /api/keys
+Create a new API key.
+
+#### GET /api/keys/{keyId}
+Get details for a specific key.
+
+#### DELETE /api/keys/{keyId}
+Revoke an API key.
 
 ### POST /api/data/sync-ofac
 
 Manually trigger OFAC data synchronization.
 
 **Headers:**
-- `Authorization`: Bearer token (set in `OFAC_SYNC_API_KEY`)
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "OFAC data synced successfully",
-  "chains": ["ethereum", "base"],
-  "totalAddresses": 500,
-  "timestamp": "2025-10-01T10:30:00Z"
-}
-```
+- `Authorization: Bearer <OFAC_SYNC_API_KEY>`
 
 ## Rate Limiting
 
-### Free Tier (No Payment)
-- 10 requests per day per IP
-- Returns 402 Payment Required
+| Tier | Per Minute | Per Day | Notes |
+|------|------------|---------|-------|
+| Free | N/A | 10 | IP-based |
+| X402 Payment | 100 | 10,000 | Per-payment |
+| API Key | Custom | Custom | Configurable per key |
 
-### Paid Tier (With X402 Payment)
-- 100 requests per minute
-- 10,000 requests per day
-
-Rate limit headers are included in responses:
+Rate limit headers included in responses:
 ```
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 99
 X-RateLimit-Reset: 2025-10-01T11:00:00Z
 ```
-
-## Caching Strategy
-
-### Layer 1: OFAC Dataset Cache
-- Stores complete OFAC list in Redis SET
-- TTL: 25 hours
-- Updated daily via automated job
-- Key format: `ofac:{chain}`
-
-### Layer 2: Screening Results Cache
-- Stores individual screening results
-- TTL: 1 hour (non-sanctioned), 24 hours (sanctioned)
-- Key format: `screen:{chain}:{address}`
 
 ## Deployment
 
@@ -321,192 +411,85 @@ npm install -g vercel
 vercel
 ```
 
-3. Set environment variables in Vercel dashboard:
-   - Go to Project Settings > Environment Variables
-   - Add all variables from `.env.example`
+3. Configure environment variables in Vercel dashboard
 
-4. Set up GitHub Actions secrets:
+4. Set up GitHub Actions secrets for automated OFAC sync:
    - `VERCEL_API_URL`: Your deployed API URL
    - `OFAC_SYNC_API_KEY`: Secret key for data sync
 
-### Configure Upstash Redis
+### Configure External Services
 
-1. Create a Redis database at [upstash.com](https://upstash.com)
+**Upstash Redis:**
+1. Create database at [upstash.com](https://upstash.com)
 2. Copy REST URL and token to environment variables
-3. Run the seed script to populate initial data
 
-### Automated OFAC Updates
+**Supabase:**
+1. Create project at [supabase.com](https://supabase.com)
+2. Set up users table and RLS policies
+3. Copy project URL and keys to environment variables
 
-The GitHub Actions workflow runs daily at 00:05 UTC to sync OFAC data:
-- Location: `.github/workflows/update-ofac-data.yml`
-- Triggers: Daily schedule or manual dispatch
-- Requires: `VERCEL_API_URL` and `OFAC_SYNC_API_KEY` secrets
+**Stripe (optional):**
+1. Create account at [stripe.com](https://stripe.com)
+2. Configure subscription products and prices
+3. Set up webhook endpoint: `https://your-domain/api/billing/webhook`
 
-## Environment Variables
+## Data Freshness
 
-### Required
+ClearWallet maintains strict data freshness guarantees:
 
-- `UPSTASH_REDIS_REST_URL`: Upstash Redis REST API URL
-- `UPSTASH_REDIS_REST_TOKEN`: Upstash Redis REST API token
-- `PAYMENT_RECIPIENT_ADDRESS`: Address to receive X402 payments (required for payment middleware)
+- **Source**: Official OFAC data via 0xB10C GitHub repository
+- **Update Frequency**: Daily at 00:05 UTC
+- **Redis TTL**: 25 hours (1-hour buffer beyond 24-hour cycle)
+- **Monitoring**: `/api/health` reports data age and sync status
 
-### Optional - Coinbase Developer Platform
-
-- `CDP_CLIENT_KEY`: Coinbase Developer Platform client key for onramp integration
-- `CDP_API_KEY_ID`: CDP API key ID for session token generation
-- `CDP_API_KEY_SECRET`: CDP API key secret for session token generation
-
-### Optional - X402 Configuration
-
-- `PAYMENT_VERIFICATION_RPC`: RPC URL for payment verification
-- `PRICE_PER_CHECK`: Price per screening check in USD (default: 0.005)
-
-### Optional - Rate Limiting
-
-- `SUPPORTED_CHAINS`: Comma-separated list of chains (default: ethereum,base)
-- `FREE_TIER_LIMIT`: Free tier daily limit (default: 10)
-- `PAID_TIER_LIMIT_PER_MINUTE`: Paid tier per-minute limit (default: 100)
-- `PAID_TIER_LIMIT_PER_DAY`: Paid tier daily limit (default: 10000)
-
-### Optional - Data Sync
-
-- `OFAC_SYNC_API_KEY`: Secret key for OFAC sync endpoint
-- `NODE_ENV`: Environment (development/production)
-
-## Performance
-
-- **Response Time**: < 200ms (p95) with cache hit
-- **Cache Hit Rate**: > 80% expected
-- **Uptime**: > 99.5% (Vercel SLA)
-- **Cold Start**: < 100ms (Edge Functions)
-
-## Error Codes
-
-- `INVALID_ADDRESS`: Invalid address format
-- `UNSUPPORTED_CHAIN`: Chain not supported
-- `RATE_LIMIT_EXCEEDED`: Rate limit exceeded
-- `PAYMENT_REQUIRED`: Payment required
-- `SERVICE_UNAVAILABLE`: Service temporarily unavailable
-- `INTERNAL_ERROR`: Internal server error
-
-## Data Sources
-
-- **Primary**: [0xB10C OFAC GitHub](https://github.com/0xB10C/ofac-sanctioned-digital-currency-addresses)
-  - Updates: Daily at 0 UTC
-  - Format: TXT (one address per line)
-  - Cost: FREE
-
-### Data Freshness Guarantee
-
-The ClearWallet service maintains strict data freshness guarantees to ensure reliable OFAC sanctions screening:
-
-- **Live Data Source**: Uses production OFAC data from the 0xB10C GitHub repository, which is updated daily at 00:00 UTC with official U.S. Treasury OFAC sanctions data
-- **Automated Sync**: GitHub Actions workflow automatically syncs data at 00:05 UTC daily
-- **Buffer Period**: 25-hour Redis TTL provides a 1-hour buffer beyond the 24-hour update cycle
-- **Health Monitoring**: Built-in health checks continuously monitor data age and freshness
-- **Status Levels**:
-  - **Healthy**: Data is less than 24 hours old
-  - **Degraded**: Data is between 24-26 hours old (service continues but logs warnings)
-  - **Unhealthy**: Data is more than 26 hours old (indicates sync failure requiring investigation)
-
-### Monitoring
-
-The service provides comprehensive monitoring capabilities to ensure data freshness and service reliability:
-
-- **Health Check Endpoint**: `GET /api/health`
-  - Returns service status, data freshness metrics, and last sync timestamp
-  - Includes Redis connectivity check and OFAC data availability check
-  - Provides data age in milliseconds for precise monitoring
-  - Can be integrated with uptime monitoring tools (UptimeRobot, Pingdom, etc.)
-
-**Example Health Check Response:**
-```json
-{
-  "status": "healthy",
-  "timestamp": "2025-10-05T10:30:00Z",
-  "version": "1.0.0",
-  "checks": {
-    "redis": true,
-    "ofac_data": true
-  },
-  "ofac_data_age_ms": 18000000,
-  "ofac_data_last_sync": "2025-10-05T05:30:00Z"
-}
-```
-
-**Health Check Status Indicators:**
-- `status: "healthy"` - All systems operational, data is fresh
-- `status: "degraded"` - Service operational but data is approaching staleness threshold
-- `status: "unhealthy"` - Data sync has failed, immediate attention required
+Status levels:
+- **Healthy**: Data < 24 hours old
+- **Degraded**: Data 24-26 hours old (service continues with warnings)
+- **Unhealthy**: Data > 26 hours old (sync failure requiring investigation)
 
 ## Security
 
-- Input validation on all requests
-- Rate limiting to prevent abuse
-- Payment validation for paid tier
-- Secure Redis connections (TLS)
-- No PII storage
+- Address validation: Strict 0x-prefixed 40-character hex format
+- Rate limiting: Fails closed (denies requests if Redis unavailable)
+- Payment validation: Cryptographic proof via X402 protocol
+- Redis: TLS connections via Upstash
+- No PII storage: Only addresses screened, no personal data
+- Correlation IDs: Full audit trail capability
 
-## X402 Payment Integration
+## Error Codes
 
-The X402 payment integration is now COMPLETE. The service uses the x402-next payment middleware with Coinbase facilitator to enable seamless micropayments for API access.
+| Code | Description |
+|------|-------------|
+| `INVALID_ADDRESS` | Address format validation failed |
+| `UNSUPPORTED_CHAIN` | Chain not in supported list |
+| `RATE_LIMIT_EXCEEDED` | Rate limit reached |
+| `PAYMENT_REQUIRED` | X402 payment needed (402 status) |
+| `UNAUTHORIZED` | Invalid or missing API key |
+| `SERVICE_UNAVAILABLE` | Temporary service issue |
+| `INTERNAL_ERROR` | Server error |
 
-### How It Works
+## Performance
 
-The payment middleware intercepts requests to protected endpoints and:
-1. Checks for valid X402 payment headers
-2. Verifies payment using the Coinbase facilitator on Base mainnet
-3. Processes payment settlement automatically
-4. Forwards authenticated requests to the API handler
-5. Displays a payment UI with Coinbase onramp for unpaid requests
+- **Response Time**: < 50ms cache hit, < 200ms p95 overall
+- **Cache Hit Rate**: > 80% expected
+- **Cold Start**: < 100ms (Vercel Edge Functions)
+- **Uptime**: > 99.5% (Vercel + Upstash SLA)
 
-### Configuration
+## X402 Integration
 
-Set up your X402 payment integration by configuring these environment variables:
+ClearWallet is discoverable by AI agents through the X402 Bazaar. The service metadata at `/.well-known/x402.json` includes:
 
-1. **Required**: `PAYMENT_RECIPIENT_ADDRESS` - Your wallet address to receive payments
-2. **Optional**: `CDP_CLIENT_KEY`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` - Coinbase Developer Platform credentials for onramp functionality
-3. **Optional**: `PRICE_PER_CHECK` - Price per screening check (default: $0.005)
+- Endpoint descriptions and capabilities
+- Input/output schemas
+- Pricing ($0.005 USDC per check on Base network)
+- Payment recipient address
 
-For detailed middleware setup instructions, see [MIDDLEWARE_SETUP.md](MIDDLEWARE_SETUP.md).
-
-### Protected Endpoints
-
-The following endpoints are protected by X402 payment middleware:
-
-- `/api/screen/:chain/:address` - Wallet screening endpoint ($0.005 per check)
-- `/api/x402/session-token` - Session token generation (free, for onramp integration)
-
-### X402 Bazaar Listing
-
-The wallet screening service is discoverable by AI agents through the X402 Bazaar. AI agents can:
-- Discover the service and its capabilities automatically
-- View the structured API schema including input parameters and output format
-- Make payments and access the API programmatically
-- Receive detailed screening responses with sanctioned status and risk assessment
-
-The service metadata includes:
-- Full endpoint description and usage instructions
-- Input schema (chain and address parameters)
-- Output schema (screening response structure)
-- Pricing information ($0.005 per check)
-- Network information (Base mainnet)
-
-### Coinbase Onramp Integration
-
-Users without USDC can seamlessly purchase it through the integrated Coinbase onramp:
-- Automatic paywall display for unpaid requests
-- One-click purchase flow
-- Supports credit/debit cards and bank transfers
-- Instant USDC delivery on Base network
+AI agents can autonomously discover, pay for, and use the screening service for compliance workflows.
 
 ## Future Enhancements
 
-- Add more blockchain networks (Solana, Polygon, Arbitrum)
-- Implement batch screening endpoint
-- Add webhook notifications for newly sanctioned addresses
-- Enhanced risk scoring with transaction history
-- API key management dashboard
+- Additional blockchain networks (Solana, Polygon, Arbitrum)
+- Webhook notifications for newly sanctioned addresses
+- Enhanced risk scoring with transaction history analysis
 - Additional data sources (Chainalysis, TRM Labs)
-- Migration to Edge runtime for payment middleware
-
+- Edge runtime migration for payment middleware
